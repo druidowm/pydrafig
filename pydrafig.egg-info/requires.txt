@@ -1,7 +1,0 @@
-PyYAML>=6.0
-dill>=0.3.0
-
-[test]
-pytest>=7.0
-numpy
-torch
