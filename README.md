@@ -128,34 +128,6 @@ The execution environment includes standard Python types (`list`, `dict`, `int`,
 
 > **Note**: Because this uses `exec()`, only run configs from trusted sources.
 
-## Migration from StrictConfig
-
-### Before (StrictConfig)
-
-```python
-class MyConfig(StrictConfig):
-    def __init__(self):
-        super().__init__()
-        self.learning_rate = 0.001
-        self.optimizer = OptimizerConfig()  # ❌ Shared instance bug!
-```
-
-### After (@pydraclass)
-
-```python
-@pydraclass
-class MyConfig:
-    learning_rate: float = 0.001
-    optimizer: OptimizerConfig = field(default_factory=OptimizerConfig)  # ✅ Lazy instantiation
-```
-
-## Key Differences from pydra.Config
-
-1. **Strict validation**: Invalid attribute names raise errors (prevents typos)
-2. **Recursive finalization**: Auto-discovers and finalizes configs in nested structures
-3. **Powerful CLI parsing**: Uses Python expression evaluation for flexible configuration
-4. **Dataclass-based**: Standard Python feature with better IDE support
-
 ## API Reference
 
 ### @pydraclass
