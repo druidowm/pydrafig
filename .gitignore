@@ -1,2 +1,5 @@
 .DS_Store
 pydrafig.egg-info/
+__pycache__/
+dist/
+.pytest_cache/
