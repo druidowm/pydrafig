@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "pydrafig"
-version = "0.1.1"
+version = "0.1.2"
 description = "Dataclass-based configuration system with strict validation and auto-finalization."
 readme = "README.md"
 requires-python = ">=3.10"
