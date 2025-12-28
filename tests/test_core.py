@@ -139,3 +139,122 @@ def test_container_finalization():
     assert c.items_list[0].finalized
     assert c.items_dict["k"].finalized
 
+
+def test_replace_basic():
+    """Test basic replace functionality."""
+    @pydraclass
+    class OptimizerConfig:
+        lr: float = 0.001
+        name: str = "adam"
+
+    @pydraclass
+    class SGDConfig:
+        lr: float = 0.01
+        momentum: float = 0.9
+
+    @pydraclass
+    class TrainConfig:
+        optimizer: OptimizerConfig | SGDConfig = field(default_factory=OptimizerConfig)
+        epochs: int = 10
+
+    config = TrainConfig()
+    assert isinstance(config.optimizer, OptimizerConfig)
+    
+    # Replace with valid type by name and kwargs
+    config.replace("optimizer", "SGDConfig", lr=0.05, momentum=0.95)
+    assert config.optimizer.__class__.__name__ == "SGDConfig"
+    assert config.optimizer.lr == 0.05
+    assert config.optimizer.momentum == 0.95
+
+
+def test_replace_invalid_type():
+    """Test that replace rejects invalid class names."""
+    @pydraclass
+    class OptimizerConfig:
+        lr: float = 0.001
+
+    @pydraclass
+    class SGDConfig:
+        lr: float = 0.01
+
+    @pydraclass
+    class TrainConfig:
+        optimizer: OptimizerConfig | SGDConfig = field(default_factory=OptimizerConfig)
+
+    config = TrainConfig()
+    
+    # Try to replace with invalid class name
+    with pytest.raises(ValueError) as excinfo:
+        config.replace("optimizer", "InvalidClass")
+    
+    assert "not an allowed type" in str(excinfo.value)
+    assert "OptimizerConfig" in str(excinfo.value) or "SGDConfig" in str(excinfo.value)
+
+
+def test_replace_invalid_param_name():
+    """Test that replace catches invalid parameter names."""
+    config = SimpleConfig()
+    
+    with pytest.raises(InvalidConfigurationError) as excinfo:
+        config.replace("unknown_param", "SomeClass")
+    
+    assert "Invalid parameter 'unknown_param'" in str(excinfo.value)
+
+
+def test_replace_with_typo_suggestion():
+    """Test that replace suggests correct parameter names for typos."""
+    @pydraclass
+    class ConfigWithField:
+        batch_size: int = 32
+
+    config = ConfigWithField()
+    
+    with pytest.raises(InvalidConfigurationError) as excinfo:
+        config.replace("bacth_size", "int")
+    
+    assert "Did you mean: 'batch_size'?" in str(excinfo.value)
+
+
+def test_replace_with_kwargs():
+    """Test replace passes kwargs to constructor."""
+    @pydraclass
+    class ConfigA:
+        x: int = 1
+        y: str = "default"
+
+    @pydraclass
+    class ConfigB:
+        x: int = 2
+        y: str = "other"
+
+    @pydraclass
+    class Parent:
+        child: ConfigA | ConfigB = field(default_factory=ConfigA)
+
+    config = Parent()
+    
+    # Replace with specific kwargs
+    config.replace("child", "ConfigB", x=100, y="custom")
+    assert config.child.__class__.__name__ == "ConfigB"
+    assert config.child.x == 100
+    assert config.child.y == "custom"
+
+
+def test_replace_invalid_kwargs():
+    """Test replace with invalid kwargs raises TypeError."""
+    @pydraclass
+    class ConfigA:
+        x: int = 1
+
+    @pydraclass
+    class Parent:
+        child: ConfigA = field(default_factory=ConfigA)
+
+    config = Parent()
+    
+    # Try to replace with invalid kwarg
+    with pytest.raises(TypeError) as excinfo:
+        config.replace("child", "ConfigA", nonexistent_param=42)
+    
+    assert "Failed to instantiate" in str(excinfo.value)
+

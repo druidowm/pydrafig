@@ -10,8 +10,9 @@ This module provides a @pydraclass decorator that creates configuration classes 
 """
 
 import dataclasses
+import warnings
 from dataclasses import dataclass, field, fields, MISSING
-from typing import Any, Set, TypeVar, Type
+from typing import Any, Set, TypeVar, Type, Union, get_origin, get_args, get_type_hints
 from pathlib import Path
 
 class InvalidConfigurationError(ValueError):
@@ -441,6 +442,123 @@ class ConfigMeta:
         path = Path(path)
         with open(path, 'wb') as f:
             dill.dump(self, f)
+
+    def replace(self, param_name: str, class_name: str, **kwargs: Any) -> None:
+        """
+        Replace a config parameter by instantiating a new class from the allowed types.
+
+        This method looks up the class by name from the parameter's type annotation,
+        instantiates it with the provided kwargs, and assigns it to the parameter.
+
+        Args:
+            param_name: The name of the parameter to replace
+            class_name: The name of the class to instantiate (must be in the allowed types)
+            **kwargs: Keyword arguments to pass to the class constructor
+
+        Raises:
+            InvalidConfigurationError: If param_name is not a valid parameter
+            ValueError: If class_name is not in the list of allowed types for this parameter
+
+        Example:
+            @pydraclass
+            class OptimizerConfig:
+                lr: float = 0.001
+
+            @pydraclass
+            class SGDConfig:
+                lr: float = 0.01
+                momentum: float = 0.9
+
+            @pydraclass
+            class TrainConfig:
+                optimizer: OptimizerConfig | SGDConfig = field(default_factory=OptimizerConfig)
+
+            config = TrainConfig()
+            config.replace("optimizer", "SGDConfig", lr=0.05, momentum=0.95)  # ✅ Works
+            config.replace("optimizer", "InvalidClass")  # ❌ ValueError
+        """
+        import types
+        
+        # Check if parameter exists
+        field_names = {f.name for f in fields(self)}
+        if param_name not in field_names:
+            suggestions = self._get_similar_attributes(param_name)
+            error_msg = f"Invalid parameter '{param_name}' for {self.__class__.__name__}"
+            if suggestions:
+                suggestions_str = "', '".join(suggestions)
+                error_msg += f". Did you mean: '{suggestions_str}'?"
+            else:
+                error_msg += f". Available parameters: {', '.join(sorted(field_names))}"
+            raise InvalidConfigurationError(error_msg)
+
+        # Get type hints for this class
+        try:
+            type_hints = get_type_hints(self.__class__)
+        except Exception as e:
+            warnings.warn(
+                f"Could not get type hints for {self.__class__.__name__}: {e}. "
+                f"Cannot validate allowed types for '{param_name}'.",
+                UserWarning,
+                stacklevel=2
+            )
+            raise ValueError(
+                f"Cannot replace '{param_name}': unable to retrieve type hints"
+            ) from e
+
+        if param_name not in type_hints:
+            warnings.warn(
+                f"No type annotation found for '{param_name}' in {self.__class__.__name__}. "
+                f"Cannot determine allowed types.",
+                UserWarning,
+                stacklevel=2
+            )
+            raise ValueError(
+                f"Cannot replace '{param_name}': no type annotation found"
+            )
+
+        expected_type = type_hints[param_name]
+        
+        # Get the allowed types from the annotation
+        origin = get_origin(expected_type)
+        
+        if origin is Union or isinstance(expected_type, types.UnionType):
+            # Union type - get all the allowed types
+            allowed_types = [t for t in get_args(expected_type) if t is not type(None)]
+        else:
+            # Single type
+            allowed_types = [expected_type]
+        
+        # Find the class that matches the given name
+        target_class = None
+        for t in allowed_types:
+            if hasattr(t, '__name__') and t.__name__ == class_name:
+                target_class = t
+                break
+        
+        if target_class is None:
+            # Build helpful error message
+            type_names = []
+            for t in allowed_types:
+                if hasattr(t, '__name__'):
+                    type_names.append(t.__name__)
+                else:
+                    type_names.append(str(t))
+            
+            raise ValueError(
+                f"'{class_name}' is not an allowed type for '{param_name}' in {self.__class__.__name__}. "
+                f"Allowed types: {', '.join(type_names)}"
+            )
+        
+        # Instantiate the class with the provided kwargs
+        try:
+            new_instance = target_class(**kwargs)
+        except TypeError as e:
+            raise TypeError(
+                f"Failed to instantiate {class_name} with provided arguments: {e}"
+            ) from e
+        
+        # Set the attribute
+        setattr(self, param_name, new_instance)
 
 
 T = TypeVar('T')
